@@ -1,0 +1,6 @@
+{
+  "name": "ELARA AI v2.3 — Intelligent Student Companion",
+  "description": "E.L.A.R.A. (Enhance Learning, Analysis, and Reasoning Assistance) — An intelligent AI student companion supporting mental wellness, academic tutoring, research discovery, document analysis, voice conversations, and personal productivity.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
