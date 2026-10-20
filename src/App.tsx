@@ -11,6 +11,13 @@ import {
   Settings,
   Menu,
   X,
+  Maximize2,
+  Minimize2,
+  Share2,
+  Download,
+  Globe,
+  Keyboard,
+  Check,
 } from 'lucide-react';
 import {
   AppSettings,
@@ -106,6 +113,13 @@ export default function App() {
   const [focusedDocId, setFocusedDocId] = useState<string>('');
   const [focusedTaskId, setFocusedTaskId] = useState<string>('');
 
+  // Browser-Native Web App States (PWA, Fullscreen, Web Sharing, Shortcuts)
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const [showWebShortcuts, setShowWebShortcuts] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [copiedShareLink, setCopiedShareLink] = useState(false);
+
   // Persistent local states
   const [profile, setProfile] = useState<StudentProfile>(() =>
     loadFromStorage('elara_profile', DEFAULT_PROFILE)
@@ -187,6 +201,104 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('elara_quiz_history', JSON.stringify(quizHistory));
   }, [quizHistory]);
+
+  // Web App PWA Install detection
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setInstallPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true);
+    }
+
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Web App Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) {
+        return;
+      }
+
+      // '/' to jump straight to chat in web app
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setActiveNav('chat');
+      } else if (e.key === '?' && (e.shiftKey || e.metaKey)) {
+        e.preventDefault();
+        setShowWebShortcuts((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  };
+
+  const handleShareWebApp = async () => {
+    const shareData = {
+      title: 'ELARA AI — Student Companion Web App',
+      text: 'Check out ELARA AI, an intelligent student companion web app supporting wellness, tutoring, and research!',
+      url: window.location.href,
+    };
+    if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+      try {
+        await navigator.share(shareData);
+      } catch {
+        // User dismissed
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        setCopiedShareLink(true);
+        setTimeout(() => setCopiedShareLink(false), 2500);
+      } catch {
+        // clipboard unavailable
+      }
+    }
+  };
+
+  const handleInstallClick = async () => {
+    if (installPrompt) {
+      installPrompt.prompt();
+      const { outcome } = await installPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setIsInstalled(true);
+      }
+      setInstallPrompt(null);
+    } else {
+      setShowWebShortcuts(true);
+    }
+  };
 
   const handleNavigate = (section: NavSection, chatPrompt?: string) => {
     if (chatPrompt) {
@@ -271,16 +383,20 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       {/* Top Bar Contract: 3 Zones separated by gap-8 */}
       <header className="sticky top-0 z-30 flex items-center justify-between gap-8 px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs">
-        {/* Zone 1: Single text element wordmark */}
+        {/* Zone 1: Wordmark with Web App Indicator */}
         <a
           href="#dashboard"
           onClick={(e) => {
             e.preventDefault();
             handleNavigate('dashboard');
           }}
-          className="text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 font-display"
+          className="text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 font-display flex items-center gap-2"
         >
-          ELARA AI
+          <span>ELARA AI</span>
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 font-mono uppercase tracking-wider hidden sm:inline-flex items-center gap-1">
+            <Globe className="w-3 h-3" />
+            <span>Web App</span>
+          </span>
         </a>
 
         {/* Zone 2: 4–5 concise single-line text navigation links */}
@@ -335,8 +451,8 @@ export default function App() {
           </a>
         </nav>
 
-        {/* Zone 3: Global Search & Primary Action */}
-        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+        {/* Zone 3: Global Search, Browser Web Tools & Primary Action */}
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
           <GlobalSearch
             documents={documents}
             tasks={tasks}
@@ -355,9 +471,60 @@ export default function App() {
             }}
           />
 
+          {/* Web App Share / Copy Link Button */}
+          <button
+            type="button"
+            onClick={handleShareWebApp}
+            className="hidden sm:flex items-center justify-center p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title="Share Web App Link"
+          >
+            {copiedShareLink ? (
+              <Check className="w-4 h-4 text-emerald-500" />
+            ) : (
+              <Share2 className="w-4 h-4" />
+            )}
+          </button>
+
+          {/* Web App Fullscreen Mode Toggle */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="hidden md:flex items-center justify-center p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title={isFullscreen ? 'Exit Web App Fullscreen' : 'Enter Web App Fullscreen'}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="w-4 h-4" />
+            ) : (
+              <Maximize2 className="w-4 h-4" />
+            )}
+          </button>
+
+          {/* Web App Install / PWA button */}
+          {installPrompt && (
+            <button
+              type="button"
+              onClick={handleInstallClick}
+              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs transition-colors whitespace-nowrap shrink-0"
+              title="Install ELARA as desktop or mobile Web App"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Install Web App</span>
+            </button>
+          )}
+
+          {/* Web App Keyboard Shortcuts Helper Button */}
+          <button
+            type="button"
+            onClick={() => setShowWebShortcuts(true)}
+            className="hidden xl:flex items-center gap-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title="Web App Shortcuts (Press ?)"
+          >
+            <Keyboard className="w-4 h-4" />
+          </button>
+
           <button
             onClick={() => handleNavigate('chat')}
-            className="px-4 py-2 text-xs font-medium text-white bg-sky-600 rounded-lg hover:bg-sky-500 transition-colors whitespace-nowrap shrink-0"
+            className="px-3.5 sm:px-4 py-2 text-xs font-medium text-white bg-sky-600 rounded-lg hover:bg-sky-500 transition-colors whitespace-nowrap shrink-0"
           >
             Talk to ELARA
           </button>
@@ -396,27 +563,45 @@ export default function App() {
             })}
           </div>
 
-          {/* Sidebar Bottom Companion Dock */}
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center gap-3 px-2">
-            <ElaraAvatar
-              state={avatarState}
-              avatarStyle={settings.selectedAvatar || 'nova'}
-              hairStyle={settings.hairStyle}
-              faceShape={settings.faceShape}
-              eyeStyle={settings.eyeStyle}
-              faceMarking={settings.faceMarking}
-              glassesStyle={settings.glassesStyle}
-              size="sm"
-              showLabel={false}
-              onClick={() => handleNavigate('chat')}
-            />
-            <div className="min-w-0">
-              <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
-                {profile.name}
+          {/* Sidebar Bottom Companion Dock & Web App Status */}
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
+            <div className="flex items-center gap-3 px-2">
+              <ElaraAvatar
+                state={avatarState}
+                avatarStyle={settings.selectedAvatar || 'nova'}
+                hairStyle={settings.hairStyle}
+                faceShape={settings.faceShape}
+                eyeStyle={settings.eyeStyle}
+                faceMarking={settings.faceMarking}
+                glassesStyle={settings.glassesStyle}
+                size="sm"
+                showLabel={false}
+                onClick={() => handleNavigate('chat')}
+              />
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                  {profile.name}
+                </div>
+                <div className="text-[11px] text-slate-500 truncate">
+                  {profile.preferredLanguage} · Web Companion
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500 truncate">
-                {profile.preferredLanguage} · Companion Ready
-              </div>
+            </div>
+
+            <div className="px-2 pt-2 border-t border-slate-100/60 dark:border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Web App Live</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowWebShortcuts(true)}
+                className="hover:text-slate-900 dark:hover:text-slate-200 transition-colors flex items-center gap-1 font-mono text-[10px]"
+                title="Web App Shortcuts"
+              >
+                <Keyboard className="w-3 h-3" />
+                <span>[?] Keys</span>
+              </button>
             </div>
           </div>
         </aside>
@@ -675,6 +860,97 @@ export default function App() {
           );
         })}
       </nav>
+
+      {/* WEB APP SHORTCUTS & INSTALL MODAL */}
+      {showWebShortcuts && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xl space-y-5 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Globe className="w-5 h-5 text-sky-500" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  ELARA Student Web App
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWebShortcuts(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Install to Desktop / Homescreen Info */}
+            <div className="p-3.5 rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-100 dark:border-sky-900/50 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-sky-900 dark:text-sky-200 flex items-center gap-1.5">
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Standalone Web App Installation</span>
+                </span>
+                {isInstalled && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                    Installed
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                ELARA is a full Progressive Web App (PWA). Run it in its own distraction-free window directly from your web browser with offline support.
+              </p>
+              {installPrompt ? (
+                <button
+                  type="button"
+                  onClick={handleInstallClick}
+                  className="w-full py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Install to Browser / Home Screen</span>
+                </button>
+              ) : (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-white/70 dark:bg-slate-900/70 p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800 space-y-1">
+                  <p className="font-semibold text-slate-700 dark:text-slate-300">How to install in browser:</p>
+                  <p>• <strong>Chrome / Edge:</strong> Click the install icon (⊕ or computer icon) in the browser address bar.</p>
+                  <p>• <strong>Safari on iOS:</strong> Tap Share (<Share2 className="w-3 h-3 inline" />) → &quot;Add to Home Screen&quot;.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Web Keyboard Shortcuts */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold text-slate-900 dark:text-white uppercase tracking-wider font-mono">
+                Web Keyboard Shortcuts
+              </h4>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                  <span className="text-slate-600 dark:text-slate-400">Jump to Chat with ELARA</span>
+                  <kbd className="px-2 py-0.5 rounded bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 font-mono text-[11px] font-semibold">
+                    /
+                  </kbd>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                  <span className="text-slate-600 dark:text-slate-400">Toggle Fullscreen Focus Mode</span>
+                  <span className="text-slate-500 font-mono text-[11px]">Top bar button</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                  <span className="text-slate-600 dark:text-slate-400">Web App Help &amp; Shortcuts</span>
+                  <kbd className="px-2 py-0.5 rounded bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 font-mono text-[11px] font-semibold">
+                    ?
+                  </kbd>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowWebShortcuts(false)}
+              className="w-full py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1329" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="coreGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="12 10" opacity="0.4" />
+  <circle cx="256" cy="256" r="140" fill="none" stroke="#0ea5e9" stroke-width="2" opacity="0.6" />
+  
+  <!-- Outer Cosmic Orbital Ring -->
+  <ellipse cx="256" cy="256" rx="200" ry="80" fill="none" stroke="#38bdf8" stroke-width="4" transform="rotate(-30 256 256)" opacity="0.75" />
+  <circle cx="410" cy="170" r="12" fill="#38bdf8" filter="url(#glow)" />
+  <circle cx="102" cy="342" r="8" fill="#a855f7" filter="url(#glow)" />
+
+  <!-- Central Star of Knowledge / ELARA Emblem -->
+  <g filter="url(#glow)">
+    <!-- 8-Pointed Astral Star -->
+    <path d="M256 90 L276 216 L402 236 L296 276 L336 402 L256 316 L176 402 L216 276 L110 236 L236 216 Z" fill="url(#coreGlow)" />
+    <!-- Bright Center Core -->
+    <circle cx="256" cy="256" r="42" fill="#ffffff" />
+    <circle cx="256" cy="256" r="28" fill="#38bdf8" />
+    <circle cx="256" cy="256" r="12" fill="#ffffff" />
+  </g>
+
+  <!-- Sparkle Accents -->
+  <path d="M256 40 L260 70 L290 74 L260 78 L256 108 L252 78 L222 74 L252 70 Z" fill="#ffffff" opacity="0.9" />
+  <path d="M390 380 L393 398 L411 401 L393 404 L390 422 L387 404 L369 401 L387 398 Z" fill="#38bdf8" opacity="0.85" />
+  <path d="M120 130 L122 144 L136 146 L122 148 L120 162 L118 148 L104 146 L118 144 Z" fill="#38bdf8" opacity="0.85" />
+</svg>

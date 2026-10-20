@@ -120,7 +120,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 lg:p-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
           <div className="lg:col-span-8 space-y-3">
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 font-semibold text-[10px] uppercase tracking-wider border border-sky-500/20">
+                🌐 Student Companion Web App
+              </span>
+              <span aria-hidden="true">·</span>
               <span>E.L.A.R.A. — Enhance Learning, Analysis, and Reasoning Assistance</span>
               <span aria-hidden="true">·</span>
               <span>{profile.preferredLanguage}</span>

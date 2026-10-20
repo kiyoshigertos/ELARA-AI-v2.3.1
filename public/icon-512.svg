@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg512" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1329" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="coreGlow512" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <filter id="glow512" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="14" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg512)" />
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="12 10" opacity="0.4" />
+  <ellipse cx="256" cy="256" rx="200" ry="80" fill="none" stroke="#38bdf8" stroke-width="4" transform="rotate(-30 256 256)" opacity="0.75" />
+  <circle cx="410" cy="170" r="12" fill="#38bdf8" filter="url(#glow512)" />
+  <circle cx="102" cy="342" r="8" fill="#a855f7" filter="url(#glow512)" />
+  <g filter="url(#glow512)">
+    <path d="M256 90 L276 216 L402 236 L296 276 L336 402 L256 316 L176 402 L216 276 L110 236 L236 216 Z" fill="url(#coreGlow512)" />
+    <circle cx="256" cy="256" r="42" fill="#ffffff" />
+    <circle cx="256" cy="256" r="28" fill="#38bdf8" />
+    <circle cx="256" cy="256" r="12" fill="#ffffff" />
+  </g>
+</svg>
