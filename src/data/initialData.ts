@@ -603,6 +603,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   wellnessPrivateMode: true,
   glassesStyle: 'none',
   avatarGlassesEnabled: false,
+  chatSpeed: 'turbo',
 };
 
 export const INITIAL_MEMORIES: MemoryItem[] = [];

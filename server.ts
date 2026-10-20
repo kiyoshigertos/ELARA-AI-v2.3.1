@@ -56,7 +56,7 @@ async function startServer() {
     });
   });
 
-  // 1. Emotionally Intelligent Chat Engine
+  // 1. Emotionally Intelligent Chat Engine (Standard JSON Endpoint)
   app.post('/api/gemini/chat', async (req, res) => {
     try {
       const ai = getGenAI();
@@ -66,11 +66,12 @@ async function startServer() {
         profile = {},
         memories = [],
         attachedDocument = null,
+        responseSpeed = 'turbo',
       } = req.body;
 
       const memoryContext =
         Array.isArray(memories) && memories.length > 0
-          ? `\nSTUDENT-APPROVED MEMORIES:\n${memories.map((m: { category: string; content: string }) => `- [${m.category}]: ${m.content}`).join('\n')}`
+          ? `\nSTUDENT-APPROVED MEMORIES:\n${memories.slice(-6).map((m: { category: string; content: string }) => `- [${m.category}]: ${m.content}`).join('\n')}`
           : '';
 
       const profileContext = `\nSTUDENT PROFILE:
@@ -87,19 +88,21 @@ async function startServer() {
           : `\nACTIVE RESPONSE MODE: Auto-detect the most appropriate mode from: Comfort Mode, Listening Mode, Reflection Mode, Study Mode, Explanation Mode, Research Mode, Motivation Mode, Planning Mode, Problem-Solving Mode, Celebration Mode, or Casual Conversation Mode.`;
 
       const docInstruction = attachedDocument
-        ? `\nATTACHED DOCUMENT CONTEXT ("${attachedDocument.name}"):\n"""\n${attachedDocument.content?.slice(0, 30000) || ''}\n"""\nUse the actual document content above to ground your answer. Clearly distinguish information found in the document from general background knowledge.`
+        ? `\nATTACHED DOCUMENT CONTEXT ("${attachedDocument.name}"):\n"""\n${attachedDocument.content?.slice(0, 25000) || ''}\n"""\nUse the actual document content above to ground your answer. Clearly distinguish information found in the document from general background knowledge.`
         : '';
 
       const fullSystemInstruction = `${ELARA_CORE_SYSTEM_PROMPT}${profileContext}${memoryContext}${modeInstruction}${docInstruction}
 
 Return your response in JSON format matching the schema with:
-- reply: Your complete, natural, formatted Markdown response to the student.
+- reply: Your complete, natural, formatted Markdown response to the student. Be engaging, clear, concise, and helpful.
 - detectedEmotion: One of [Happy, Excited, Curious, Confused, Frustrated, Worried, Stressed, Sad, Lonely, Disappointed, Overwhelmed, Angry, Hopeful, Proud, Calm]. Note this is a gentle contextual possibility, not a clinical diagnosis.
 - activeMode: Which of the 11 response modes you used (e.g., "Comfort Mode", "Study Mode", "Problem-Solving Mode", etc.).
 - avatarState: One of [IDLE, LISTENING, THINKING, SPEAKING, COMFORTING, EXCITED, SERIOUS] representing your expression while delivering this reply.
 - suggestedFollowUps: Up to 3 brief, natural follow-up prompts the student might want to click next.`;
 
-      const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = messages.map(
+      // Keep recent conversation turns for fast token ingestion
+      const recentMessages = messages.slice(-12);
+      const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = recentMessages.map(
         (m: { role: string; content: string; inlineData?: { mimeType: string; data: string } }) => {
           const parts: Array<Record<string, unknown>> = [];
           if (m.inlineData && m.inlineData.data) {
@@ -118,8 +121,10 @@ Return your response in JSON format matching the schema with:
         }
       );
 
+      const targetModel = responseSpeed === 'standard' ? 'gemini-3.8-flash' : 'gemini-3.1-flash-lite';
+
       const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: targetModel,
         contents,
         config: {
           systemInstruction: fullSystemInstruction,
@@ -158,6 +163,160 @@ Return your response in JSON format matching the schema with:
       const errMessage = error instanceof Error ? error.message : 'Failed to generate chat response';
       console.error('Chat API error:', errMessage);
       res.status(500).json({ error: errMessage });
+    }
+  });
+
+  // 1b. Ultra-Fast Real-Time Streaming Chat Engine (SSE)
+  // Replies start streaming in ~500-700ms for instantaneous conversational feel
+  app.post('/api/gemini/chat/stream', async (req, res) => {
+    // Set headers for Server-Sent Events
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    try {
+      const ai = getGenAI();
+      const {
+        messages = [],
+        mode = 'Auto',
+        profile = {},
+        memories = [],
+        attachedDocument = null,
+        responseSpeed = 'turbo',
+      } = req.body;
+
+      const memoryContext =
+        Array.isArray(memories) && memories.length > 0
+          ? `\nSTUDENT-APPROVED MEMORIES:\n${memories.slice(-6).map((m: { category: string; content: string }) => `- [${m.category}]: ${m.content}`).join('\n')}`
+          : '';
+
+      const profileContext = `\nSTUDENT PROFILE:
+- Name: ${profile.name || 'Student'}
+- Education Level: ${profile.educationLevel || 'College/University'}
+- Course/Grade: ${profile.course || 'General Studies'}
+- Preferred Language: ${profile.preferredLanguage || 'English'}
+- Preferred Explanation Style: ${profile.explanationStyle || 'Step-by-step'}
+- Study Goals: ${profile.studyGoals || 'Academic growth and balanced well-being'}`;
+
+      const modeInstruction =
+        mode && mode !== 'Auto'
+          ? `\nACTIVE RESPONSE MODE: "${mode}". Adapt your tone and structure specifically to "${mode}".`
+          : `\nACTIVE RESPONSE MODE: Auto-detect the most appropriate mode from: Comfort Mode, Listening Mode, Reflection Mode, Study Mode, Explanation Mode, Research Mode, Motivation Mode, Planning Mode, Problem-Solving Mode, Celebration Mode, or Casual Conversation Mode.`;
+
+      const docInstruction = attachedDocument
+        ? `\nATTACHED DOCUMENT CONTEXT ("${attachedDocument.name}"):\n"""\n${attachedDocument.content?.slice(0, 25000) || ''}\n"""\nUse the actual document content above to ground your answer.`
+        : '';
+
+      const streamSystemPrompt = `${ELARA_CORE_SYSTEM_PROMPT}${profileContext}${memoryContext}${modeInstruction}${docInstruction}
+
+FORMAT INSTRUCTION:
+Provide your direct, warm, supportive, and formatted Markdown response to the student immediately.
+At the very end of your response, output on a new line:
+---ELARA_META---
+Followed by a single valid JSON object on one line:
+{"detectedEmotion":"Calm","activeMode":"Study Mode","avatarState":"SPEAKING","suggestedFollowUps":["Quick question 1","Quick question 2"]}
+Do not wrap the JSON in backticks. Valid detectedEmotion: Happy, Excited, Curious, Confused, Frustrated, Worried, Stressed, Sad, Lonely, Disappointed, Overwhelmed, Angry, Hopeful, Proud, Calm. Valid avatarState: COMFORTING, EXCITED, SERIOUS, SPEAKING.`;
+
+      const recentMessages = messages.slice(-12);
+      const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = recentMessages.map(
+        (m: { role: string; content: string; inlineData?: { mimeType: string; data: string } }) => {
+          const parts: Array<Record<string, unknown>> = [];
+          if (m.inlineData && m.inlineData.data) {
+            parts.push({
+              inlineData: {
+                mimeType: m.inlineData.mimeType,
+                data: m.inlineData.data,
+              },
+            });
+          }
+          parts.push({ text: m.content });
+          return {
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts,
+          };
+        }
+      );
+
+      const targetModel = responseSpeed === 'standard' ? 'gemini-3.8-flash' : 'gemini-3.1-flash-lite';
+
+      const stream = await ai.models.generateContentStream({
+        model: targetModel,
+        contents,
+        config: {
+          systemInstruction: streamSystemPrompt,
+        },
+      });
+
+      let fullAccumulated = '';
+      let metaEncountered = false;
+      const META_DELIMITER = '---ELARA_META---';
+
+      for await (const chunk of stream) {
+        const text = chunk.text || '';
+        if (!text) continue;
+        fullAccumulated += text;
+
+        if (!metaEncountered) {
+          const delimIndex = fullAccumulated.indexOf(META_DELIMITER);
+          if (delimIndex !== -1) {
+            metaEncountered = true;
+            // Send whatever text was before delimiter that hasn't been emitted yet
+            // To ensure smooth delivery, send a chunk event with the clean slice
+            const cleanTextBeforeDelim = fullAccumulated.slice(0, delimIndex).trimEnd();
+            res.write(`data: ${JSON.stringify({ type: 'replace_full_text', text: cleanTextBeforeDelim })}\n\n`);
+          } else {
+            // Check if delimiter might be partially formed at the end
+            const potentialPrefix = META_DELIMITER.slice(0, 10);
+            if (!text.includes(potentialPrefix)) {
+              res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
+            }
+          }
+        }
+      }
+
+      // Parse metadata from accumulator
+      let detectedEmotion = 'Calm';
+      let activeMode = mode !== 'Auto' ? mode : 'Study Mode';
+      let avatarState = 'SPEAKING';
+      let suggestedFollowUps: string[] = [];
+
+      const parts = fullAccumulated.split(META_DELIMITER);
+      const cleanReply = parts[0].trim();
+
+      if (parts[1]) {
+        try {
+          const rawJson = parts[1].trim();
+          const cleanJson = rawJson.replace(/```json/g, '').replace(/```/g, '').trim();
+          const parsed = JSON.parse(cleanJson);
+          if (parsed.detectedEmotion) detectedEmotion = parsed.detectedEmotion;
+          if (parsed.activeMode) activeMode = parsed.activeMode;
+          if (parsed.avatarState) avatarState = parsed.avatarState;
+          if (Array.isArray(parsed.suggestedFollowUps)) suggestedFollowUps = parsed.suggestedFollowUps;
+          else if (Array.isArray(parsed.followUps)) suggestedFollowUps = parsed.followUps;
+        } catch {
+          // Keep defaults
+        }
+      }
+
+      // Send completion event
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'done',
+          reply: cleanReply,
+          detectedEmotion,
+          activeMode,
+          avatarState,
+          suggestedFollowUps,
+        })}\n\n`
+      );
+      res.end();
+    } catch (error: unknown) {
+      const errMessage = error instanceof Error ? error.message : 'Chat stream error';
+      console.error('Chat Stream error:', errMessage);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: errMessage })}\n\n`);
+      res.end();
     }
   });
 

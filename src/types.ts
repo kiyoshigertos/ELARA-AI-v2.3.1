@@ -255,6 +255,7 @@ export interface AppSettings {
   wellnessPrivateMode: boolean;
   avatarGlassesEnabled?: boolean;
   glassesStyle?: GlassesStyle;
+  chatSpeed?: 'turbo' | 'standard';
 }
 
 export interface QuizAttemptSummary {

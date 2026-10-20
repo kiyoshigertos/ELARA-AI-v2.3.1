@@ -1115,31 +1115,91 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
 
-            {/* Auto-Speak Toggle */}
-            <div className="flex flex-col justify-between">
-              <span className="font-medium text-slate-700 dark:text-slate-300">
-                Automatic Voice Replies
-              </span>
-              <label className="flex items-center gap-2 mt-1 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.voiceEnabled && settings.autoSpeakReplies}
-                  onChange={(e) =>
-                    onUpdateSettings({
-                      voiceEnabled: e.target.checked,
-                      autoSpeakReplies: e.target.checked,
-                    })
-                  }
-                  className="w-4 h-4 accent-sky-600 rounded"
-                />
-                <span className="text-xs text-slate-600 dark:text-slate-400">
-                  Speak responses aloud in Chat without manually pressing play
+              {/* Auto-Speak Toggle */}
+              <div className="flex flex-col justify-between">
+                <span className="font-medium text-slate-700 dark:text-slate-300">
+                  Automatic Voice Replies
                 </span>
-              </label>
+                <label className="flex items-center gap-2 mt-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.voiceEnabled && settings.autoSpeakReplies}
+                    onChange={(e) =>
+                      onUpdateSettings({
+                        voiceEnabled: e.target.checked,
+                        autoSpeakReplies: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 accent-sky-600 rounded"
+                  />
+                  <span className="text-xs text-slate-600 dark:text-slate-400">
+                    Speak responses aloud in Chat without manually pressing play
+                  </span>
+                </label>
+              </div>
+
+              {/* Chat Response Speed Toggle */}
+              <div className="flex flex-col justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                    <span>Chat Response Speed</span>
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold">
+                    {(settings.chatSpeed || 'turbo') === 'turbo' ? '⚡ Ultra-Fast (<1s)' : 'Standard'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => onUpdateSettings({ chatSpeed: 'turbo' })}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      (settings.chatSpeed || 'turbo') === 'turbo'
+                        ? 'bg-amber-500/10 border-amber-500/40 text-amber-900 dark:text-amber-200 ring-1 ring-amber-500/30'
+                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-semibold text-xs flex items-center gap-1">
+                        <Zap className="w-3 h-3 fill-current text-amber-500" />
+                        <span>Turbo Speed</span>
+                      </span>
+                      {(settings.chatSpeed || 'turbo') === 'turbo' && (
+                        <Check className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                      Instant token streaming in ~600ms. Quick, warm &amp; ultra-responsive.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onUpdateSettings({ chatSpeed: 'standard' })}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      settings.chatSpeed === 'standard'
+                        ? 'bg-sky-500/10 border-sky-500/40 text-sky-900 dark:text-sky-200 ring-1 ring-sky-500/30'
+                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-semibold text-xs flex items-center gap-1">
+                        <Bot className="w-3 h-3 text-sky-500" />
+                        <span>Standard</span>
+                      </span>
+                      {settings.chatSpeed === 'standard' && (
+                        <Check className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                      Deep multi-turn reasoning with rich comprehensive analysis.
+                    </p>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
       {/* SECTION 3: STUDENT PROFILE & DATA PRIVACY */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

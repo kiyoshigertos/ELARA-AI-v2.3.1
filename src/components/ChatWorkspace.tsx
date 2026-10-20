@@ -19,6 +19,10 @@ import {
   Play,
   Check,
   Bot,
+  Palette,
+  Zap,
+  RotateCcw,
+  X,
 } from 'lucide-react';
 import {
   AvatarState,
@@ -32,6 +36,11 @@ import {
   VoicePersona,
   AvatarStyle,
   VoiceOption,
+  HairStyle,
+  FaceShape,
+  EyeStyle,
+  FaceMarking,
+  GlassesStyle,
 } from '../types';
 import { ElaraAvatar } from './ElaraAvatar';
 import { FormattedText } from './FormattedText';
@@ -40,6 +49,9 @@ import {
   AVAILABLE_AVATARS,
   AVAILABLE_HAIRSTYLES,
   AVAILABLE_FACE_SHAPES,
+  AVAILABLE_EYE_STYLES,
+  AVAILABLE_FACE_MARKINGS,
+  AVAILABLE_GLASSES,
 } from '../data/initialData';
 
 const RESPONSE_MODES: ResponseMode[] = [
@@ -98,6 +110,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [isSending, setIsSending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [showAvatarCustomizer, setShowAvatarCustomizer] = useState(false);
+  const [customizerTab, setCustomizerTab] = useState<'hair' | 'face' | 'eyes' | 'markings' | 'glasses'>('hair');
 
   // Mobile/Tablet View Switcher: allows seamless toggling between Chat Stream and Full Talking Avatar Stage on small screens
   const [mobileViewMode, setMobileViewMode] = useState<'chat' | 'voiceStage'>('chat');
@@ -282,7 +296,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     ]
   );
 
-  // Send a message to ELARA
+  // Send a message to ELARA (with Ultra-Fast Streaming SSE response)
   const handleSendMessage = useCallback(
     async (overrideText?: string) => {
       const textToSend = (overrideText !== undefined ? overrideText : inputText).trim();
@@ -314,18 +328,30 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           ? textToSend.slice(0, 46) + (textToSend.length > 46 ? '...' : '')
           : activeThread.title;
 
+      // Create an optimistic placeholder for the streaming assistant response
+      const assistantMsgId = `msg-${Date.now() + 1}-elara`;
+      const initialAssistantMsg: ChatMessage = {
+        id: assistantMsgId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date().toISOString(),
+        detectedEmotion: 'Calm',
+        activeMode: selectedMode,
+        avatarState: 'THINKING',
+      };
+
       onUpdateConversation({
         ...activeThread,
         title: updatedTitle,
         updatedAt: new Date().toISOString(),
-        messages: updatedMessages,
+        messages: [...updatedMessages, initialAssistantMsg],
       });
 
       setIsSending(true);
       onAvatarStateChange('THINKING');
 
       try {
-        const res = await fetch('/api/gemini/chat', {
+        const streamRes = await fetch('/api/gemini/chat/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -339,42 +365,166 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             attachedDocument: attachedDoc
               ? { name: attachedDoc.name, content: attachedDoc.textContent }
               : null,
+            responseSpeed: settings.chatSpeed || 'turbo',
           }),
         });
 
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Failed to reach ELARA AI');
+        if (!streamRes.ok || !streamRes.body) {
+          throw new Error('Streaming failed, fallback to standard');
         }
 
-        const assistantMsg: ChatMessage = {
-          id: `msg-${Date.now()}-elara`,
-          role: 'assistant',
-          content: data.reply || 'I am here with you. How can we break this down together?',
-          timestamp: new Date().toISOString(),
-          detectedEmotion: data.detectedEmotion || 'Calm',
-          activeMode: data.activeMode || selectedMode,
-          avatarState: (data.avatarState as AvatarState) || 'COMFORTING',
-          suggestedFollowUps: Array.isArray(data.suggestedFollowUps)
-            ? data.suggestedFollowUps
-            : [],
+        const reader = streamRes.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let streamedText = '';
+        let hasStartedSpeaking = false;
+        let finalMeta: {
+          detectedEmotion?: string;
+          activeMode?: string;
+          avatarState?: AvatarState;
+          suggestedFollowUps?: string[];
+        } = {};
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() || '';
+
+          for (const part of parts) {
+            const trimmed = part.trim();
+            if (!trimmed.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(trimmed.slice(6));
+              if (data.type === 'chunk' && data.text) {
+                if (!hasStartedSpeaking) {
+                  hasStartedSpeaking = true;
+                  onAvatarStateChange('SPEAKING');
+                }
+                streamedText += data.text;
+                onUpdateConversation({
+                  ...activeThread,
+                  title: updatedTitle,
+                  updatedAt: new Date().toISOString(),
+                  messages: [
+                    ...updatedMessages,
+                    {
+                      ...initialAssistantMsg,
+                      content: streamedText,
+                      avatarState: 'SPEAKING',
+                    },
+                  ],
+                });
+              } else if (data.type === 'replace_full_text' && data.text !== undefined) {
+                streamedText = data.text;
+                onUpdateConversation({
+                  ...activeThread,
+                  title: updatedTitle,
+                  updatedAt: new Date().toISOString(),
+                  messages: [
+                    ...updatedMessages,
+                    {
+                      ...initialAssistantMsg,
+                      content: streamedText,
+                      avatarState: 'SPEAKING',
+                    },
+                  ],
+                });
+              } else if (data.type === 'done') {
+                if (data.reply) streamedText = data.reply;
+                finalMeta = {
+                  detectedEmotion: data.detectedEmotion,
+                  activeMode: data.activeMode,
+                  avatarState: data.avatarState as AvatarState,
+                  suggestedFollowUps: data.suggestedFollowUps,
+                };
+              } else if (data.type === 'error') {
+                throw new Error(data.error || 'Chat stream error');
+              }
+            } catch {
+              // Ignore line parse error
+            }
+          }
+        }
+
+        const finalReplyText = streamedText || 'I am right here with you. How can we break this down together?';
+        const finalAssistantMsg: ChatMessage = {
+          ...initialAssistantMsg,
+          content: finalReplyText,
+          detectedEmotion: finalMeta.detectedEmotion || 'Calm',
+          activeMode: (finalMeta.activeMode as ResponseMode) || selectedMode,
+          avatarState: finalMeta.avatarState || 'COMFORTING',
+          suggestedFollowUps: finalMeta.suggestedFollowUps || [],
         };
 
         onUpdateConversation({
           ...activeThread,
           title: updatedTitle,
           updatedAt: new Date().toISOString(),
-          messages: [...updatedMessages, assistantMsg],
+          messages: [...updatedMessages, finalAssistantMsg],
         });
 
-        // Automatically speak reply if voice mode is enabled
-        await speakReply(assistantMsg.content, assistantMsg.avatarState);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Connection error';
-        setErrorMessage(msg);
-        onAvatarStateChange('IDLE');
-      } finally {
+        // Immediately unlock user input for rapid conversation
         setIsSending(false);
+
+        // Speak reply in background without stalling input field or chat UI
+        speakReply(finalAssistantMsg.content, finalAssistantMsg.avatarState).catch(() => {});
+      } catch (err: unknown) {
+        // Fallback to standard endpoint
+        try {
+          const res = await fetch('/api/gemini/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: updatedMessages.map((m) => ({
+                role: m.role,
+                content: m.content,
+              })),
+              mode: selectedMode,
+              profile,
+              memories: settings.memoryEnabled ? memories : [],
+              attachedDocument: attachedDoc
+                ? { name: attachedDoc.name, content: attachedDoc.textContent }
+                : null,
+              responseSpeed: settings.chatSpeed || 'turbo',
+            }),
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Failed to reach ELARA AI');
+          }
+
+          const assistantMsg: ChatMessage = {
+            id: assistantMsgId,
+            role: 'assistant',
+            content: data.reply || 'I am here with you. How can we break this down together?',
+            timestamp: new Date().toISOString(),
+            detectedEmotion: data.detectedEmotion || 'Calm',
+            activeMode: data.activeMode || selectedMode,
+            avatarState: (data.avatarState as AvatarState) || 'COMFORTING',
+            suggestedFollowUps: Array.isArray(data.suggestedFollowUps)
+              ? data.suggestedFollowUps
+              : [],
+          };
+
+          onUpdateConversation({
+            ...activeThread,
+            title: updatedTitle,
+            updatedAt: new Date().toISOString(),
+            messages: [...updatedMessages, assistantMsg],
+          });
+
+          setIsSending(false);
+          speakReply(assistantMsg.content, assistantMsg.avatarState).catch(() => {});
+        } catch (fallbackErr: unknown) {
+          const msg = fallbackErr instanceof Error ? fallbackErr.message : 'Connection error';
+          setErrorMessage(msg);
+          setIsSending(false);
+          onAvatarStateChange('IDLE');
+        }
       }
     },
     [
@@ -390,6 +540,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       selectedMode,
       profile,
       settings.memoryEnabled,
+      settings.chatSpeed,
       memories,
       speakReply,
     ]
@@ -654,6 +805,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     .reverse()
     .find((m) => m.role === 'assistant');
 
+  const activeAvatar =
+    AVAILABLE_AVATARS.find((a) => a.id === (settings.selectedAvatar || 'nova')) ||
+    AVAILABLE_AVATARS[0];
+
   return (
     <div className="flex flex-col space-y-3 lg:space-y-0">
       {/* MOBILE & TABLET COMPACT COMPANION BAR (Visible below lg breakpoint) */}
@@ -861,14 +1016,38 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   Interactive Voice &amp; Emotional Presence
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowVoiceSettings(!showVoiceSettings)}
-                className="p-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center"
-                title="Voice Persona & Audio Settings"
-              >
-                <Sliders className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAvatarCustomizer(!showAvatarCustomizer);
+                    if (!showAvatarCustomizer) setShowVoiceSettings(false);
+                  }}
+                  className={`p-2 rounded-lg transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center ${
+                    showAvatarCustomizer
+                      ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                  title="Customize Avatar Hairstyles, Face Shapes, Eyes & Accents"
+                >
+                  <Palette className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowVoiceSettings(!showVoiceSettings);
+                    if (!showVoiceSettings) setShowAvatarCustomizer(false);
+                  }}
+                  className={`p-2 rounded-lg transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center ${
+                    showVoiceSettings
+                      ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                  title="Voice Persona & Audio Settings"
+                >
+                  <Sliders className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Responsive Centered Avatar Stage */}
@@ -886,12 +1065,29 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 showLabel={true}
               />
 
+              {/* Quick Face & Hair Customizer Toggle Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAvatarCustomizer(!showAvatarCustomizer);
+                  if (!showAvatarCustomizer) setShowVoiceSettings(false);
+                }}
+                className={`mt-2.5 px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${
+                  showAvatarCustomizer
+                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-sky-500/50 hover:text-sky-600 dark:hover:text-sky-400'
+                }`}
+              >
+                <Palette className="w-3.5 h-3.5 text-sky-500" />
+                <span>{showAvatarCustomizer ? 'Close Customizer' : 'Customize Face & Hair'}</span>
+              </button>
+
               {/* Quick Avatar Switching Pill Bar */}
               <div className="mt-3 w-full">
                 <div className="flex items-center justify-between text-[11px] mb-1.5 px-1">
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">Avatar Style:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Avatar Persona:</span>
                   <span className="text-sky-600 dark:text-sky-400 font-medium">
-                    {AVAILABLE_AVATARS.find((a) => a.id === (settings.selectedAvatar || 'nova'))?.name}
+                    {activeAvatar.name}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none w-full">
@@ -927,6 +1123,255 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   })}
                 </div>
               </div>
+
+              {/* LIVE AVATAR CUSTOMIZER IN-STAGE PANEL */}
+              {showAvatarCustomizer && (
+                <div className="mt-3.5 w-full p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm text-left space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Palette className="w-4 h-4 text-sky-500" />
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">
+                        {activeAvatar.name} Style Studio
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateSettings({
+                            hairStyle: activeAvatar.defaultHairStyle,
+                            faceShape: activeAvatar.defaultFaceShape,
+                            eyeStyle: activeAvatar.defaultEyeStyle,
+                            faceMarking: activeAvatar.defaultFaceMarking,
+                            glassesStyle: 'none',
+                            avatarGlassesEnabled: false,
+                          })
+                        }
+                        className="p-1 text-[11px] text-slate-500 hover:text-sky-600 flex items-center gap-1"
+                        title="Reset to persona default style"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span className="hidden sm:inline">Reset</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowAvatarCustomizer(false)}
+                        className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                        aria-label="Close Customizer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Category Tabs */}
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
+                    {(
+                      [
+                        { id: 'hair', label: '✂️ Hair (8)' },
+                        { id: 'face', label: '👤 Face (4)' },
+                        { id: 'eyes', label: '👁️ Eyes (4)' },
+                        { id: 'markings', label: '✨ Marks (6)' },
+                        { id: 'glasses', label: '👓 Glasses (5)' },
+                      ] as const
+                    ).map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setCustomizerTab(t.id)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-colors shrink-0 ${
+                          customizerTab === t.id
+                            ? 'bg-sky-600 text-white shadow-xs'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Tab 1: Hairstyles (8 styles) */}
+                  {customizerTab === 'hair' && (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {AVAILABLE_HAIRSTYLES.map((h) => {
+                        const isCur =
+                          (settings.hairStyle || activeAvatar.defaultHairStyle) === h.id;
+                        return (
+                          <button
+                            key={h.id}
+                            type="button"
+                            onClick={() => onUpdateSettings({ hairStyle: h.id })}
+                            className={`w-full p-2 rounded-lg text-left text-xs transition-all flex items-center justify-between border ${
+                              isCur
+                                ? 'bg-sky-500/10 border-sky-500/40 text-sky-900 dark:text-sky-200'
+                                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="min-w-0 pr-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold truncate">{h.name}</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">
+                                  {h.badge}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                {h.description}
+                              </p>
+                            </div>
+                            {isCur && <Check className="w-3.5 h-3.5 text-sky-600 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Tab 2: Face Shapes (4 shapes) */}
+                  {customizerTab === 'face' && (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {AVAILABLE_FACE_SHAPES.map((f) => {
+                        const isCur =
+                          (settings.faceShape || activeAvatar.defaultFaceShape) === f.id;
+                        return (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => onUpdateSettings({ faceShape: f.id })}
+                            className={`w-full p-2 rounded-lg text-left text-xs transition-all flex items-center justify-between border ${
+                              isCur
+                                ? 'bg-sky-500/10 border-sky-500/40 text-sky-900 dark:text-sky-200'
+                                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="min-w-0 pr-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold truncate">{f.name}</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">
+                                  {f.badge}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                {f.description}
+                              </p>
+                            </div>
+                            {isCur && <Check className="w-3.5 h-3.5 text-sky-600 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Tab 3: Eyes & Iris (4 styles) */}
+                  {customizerTab === 'eyes' && (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {AVAILABLE_EYE_STYLES.map((e) => {
+                        const isCur =
+                          (settings.eyeStyle || activeAvatar.defaultEyeStyle) === e.id;
+                        return (
+                          <button
+                            key={e.id}
+                            type="button"
+                            onClick={() => onUpdateSettings({ eyeStyle: e.id })}
+                            className={`w-full p-2 rounded-lg text-left text-xs transition-all flex items-center justify-between border ${
+                              isCur
+                                ? 'bg-sky-500/10 border-sky-500/40 text-sky-900 dark:text-sky-200'
+                                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="min-w-0 pr-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold truncate">{e.name}</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">
+                                  {e.badge}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                {e.description}
+                              </p>
+                            </div>
+                            {isCur && <Check className="w-3.5 h-3.5 text-sky-600 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Tab 4: Face Markings (6 markings) */}
+                  {customizerTab === 'markings' && (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {AVAILABLE_FACE_MARKINGS.map((m) => {
+                        const isCur =
+                          (settings.faceMarking !== undefined
+                            ? settings.faceMarking
+                            : activeAvatar.defaultFaceMarking) === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => onUpdateSettings({ faceMarking: m.id })}
+                            className={`w-full p-2 rounded-lg text-left text-xs transition-all flex items-center justify-between border ${
+                              isCur
+                                ? 'bg-sky-500/10 border-sky-500/40 text-sky-900 dark:text-sky-200'
+                                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="min-w-0 pr-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold truncate">{m.name}</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">
+                                  {m.badge}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                {m.description}
+                              </p>
+                            </div>
+                            {isCur && <Check className="w-3.5 h-3.5 text-sky-600 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Tab 5: Eyewear (5 options) */}
+                  {customizerTab === 'glasses' && (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {AVAILABLE_GLASSES.map((g) => {
+                        const isCur = (settings.glassesStyle || 'none') === g.id;
+                        return (
+                          <button
+                            key={g.id}
+                            type="button"
+                            onClick={() =>
+                              onUpdateSettings({
+                                glassesStyle: g.id,
+                                avatarGlassesEnabled: g.id !== 'none',
+                              })
+                            }
+                            className={`w-full p-2 rounded-lg text-left text-xs transition-all flex items-center justify-between border ${
+                              isCur
+                                ? 'bg-sky-500/10 border-sky-500/40 text-sky-900 dark:text-sky-200'
+                                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="min-w-0 pr-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold truncate">{g.name}</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">
+                                  {g.badge}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                {g.description}
+                              </p>
+                            </div>
+                            {isCur && <Check className="w-3.5 h-3.5 text-sky-600 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Live Caption / Last Spoken Message Preview on Mobile Stage */}
               <div className="mt-3 w-full max-w-sm text-center">
@@ -1220,14 +1665,43 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={onNewConversation}
-              className="px-3 py-2 rounded-xl text-xs font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 min-h-[38px]"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New Chat</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() =>
+                  onUpdateSettings({
+                    chatSpeed: (settings.chatSpeed || 'turbo') === 'turbo' ? 'standard' : 'turbo',
+                  })
+                }
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border flex items-center gap-1.5 transition-colors whitespace-nowrap min-h-[36px] ${
+                  (settings.chatSpeed || 'turbo') === 'turbo'
+                    ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                }`}
+                title={
+                  (settings.chatSpeed || 'turbo') === 'turbo'
+                    ? 'Ultra-Fast Turbo Speed is ON: Instant response streaming powered by lightweight low-latency model'
+                    : 'Standard Speed is ON: Detailed in-depth reasoning'
+                }
+              >
+                <Zap className={`w-3.5 h-3.5 ${(settings.chatSpeed || 'turbo') === 'turbo' ? 'fill-current text-amber-500' : ''}`} />
+                <span className="hidden sm:inline">
+                  {(settings.chatSpeed || 'turbo') === 'turbo' ? '⚡ Turbo Fast (<1s)' : 'Standard'}
+                </span>
+                <span className="sm:hidden">
+                  {(settings.chatSpeed || 'turbo') === 'turbo' ? '⚡ Fast' : 'Std'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onNewConversation}
+                className="px-3 py-2 rounded-xl text-xs font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 min-h-[38px]"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Chat</span>
+              </button>
+            </div>
           </div>
 
           {/* Scrollable Messages Stream */}
